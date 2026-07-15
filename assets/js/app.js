@@ -109,13 +109,31 @@
 
   buildFlip(0);
 
-  prevBtn.addEventListener('click', function () {
+  // The animated flip is driven by the library's internal state machine,
+  // which can occasionally stall (e.g. a click that lands mid-animation) and
+  // leave the book stuck on the same page with no visible error. Guard
+  // against that: if the page index hasn't moved shortly after we asked for
+  // a flip, jump straight there so a button press always eventually works.
+  function safeFlip(flipMethod, delta) {
     hideHint();
-    pageFlip.flipPrev();
+    var before = pageFlip.getCurrentPageIndex();
+    var target = Math.max(0, Math.min(TOTAL - 1, before + delta));
+    if (target === before) return;
+
+    flipMethod.call(pageFlip);
+
+    setTimeout(function () {
+      if (pageFlip.getCurrentPageIndex() === before) {
+        pageFlip.turnToPage(target);
+      }
+    }, 900);
+  }
+
+  prevBtn.addEventListener('click', function () {
+    safeFlip(pageFlip.flipPrev, -1);
   });
   nextBtn.addEventListener('click', function () {
-    hideHint();
-    pageFlip.flipNext();
+    safeFlip(pageFlip.flipNext, 1);
   });
   bookEl.addEventListener('click', hideHint);
   bookEl.addEventListener('touchstart', hideHint, { passive: true });
