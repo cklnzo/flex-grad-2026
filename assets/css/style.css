@@ -52,7 +52,9 @@ html, body {
   width: 100%;
   display: flex;
   justify-content: center;
-  touch-action: pan-y;
+  /* Allow vertical page scroll and pinch-zoom, but leave single-finger
+     horizontal drags free for the page-flip library to handle itself. */
+  touch-action: pan-y pinch-zoom;
 }
 
 #book {
@@ -61,6 +63,13 @@ html, body {
 
 .stf__parent {
   margin: 0 auto;
+  /* The page-flip library injects its own copy of stPageFlip.css into the
+     document at runtime (a hardcoded string baked into its JS bundle), which
+     lands after our stylesheet and re-applies touch-action: pan-y, silently
+     overriding our fix below. !important guarantees ours wins regardless of
+     load order. */
+  touch-action: pan-y pinch-zoom !important;
+  -ms-touch-action: pan-y pinch-zoom !important;
 }
 
 .stf__wrapper {

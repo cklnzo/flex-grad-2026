@@ -4,8 +4,8 @@
   box-sizing: border-box;
   transform: translateZ(0);
 
-  -ms-touch-action: pan-y;
-  touch-action: pan-y;
+  -ms-touch-action: pan-y pinch-zoom;
+  touch-action: pan-y pinch-zoom;
 }
 
 .sft__wrapper {
