@@ -19,6 +19,8 @@
   var pageFlip = null;
   var resizeTimer = null;
   var canvasObserver = null;
+  var blankCanvasRetries = 0;
+  var MAX_BLANK_CANVAS_RETRIES = 2;
 
   function computeSize() {
     var maxW = Math.min(window.innerWidth * 0.92, 620);
@@ -69,12 +71,25 @@
     var wantHeight = Math.round(cssHeight * dpr);
     if (canvas.width === wantWidth && canvas.height === wantHeight) return;
 
+    // Setting width/height wipes the canvas's pixel buffer, so the library's
+    // render loop has to redraw everything from scratch afterwards. On a
+    // busy/slow device, ResizeObserver can fire several times in quick
+    // succession while layout is still settling (fonts, images, etc.); if
+    // that happens faster than a redraw can complete, the canvas can end up
+    // permanently blank -- each new resize clears it again before the
+    // previous redraw ever lands. Debouncing (see sharpenCanvas) keeps this
+    // to a single resize once things are stable, and we also force an
+    // explicit redraw below rather than hoping the animation loop gets to it.
     canvas.width = wantWidth;
     canvas.height = wantHeight;
 
     var ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+
+    if (pageFlip) {
+      try { pageFlip.turnToPage(pageFlip.getCurrentPageIndex()); } catch (e) { /* no-op */ }
+    }
   }
 
   function sharpenCanvas() {
@@ -86,8 +101,12 @@
     if (canvasObserver) canvasObserver.disconnect();
 
     if ('ResizeObserver' in window) {
+      var debounceTimer = null;
       canvasObserver = new ResizeObserver(function () {
-        applyCanvasScale(canvas);
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          applyCanvasScale(canvas);
+        }, 120);
       });
       canvasObserver.observe(canvas);
     } else {
@@ -139,7 +158,39 @@
     pageFlip.on('init', function () {
       updateUI();
       sharpenCanvas();
+      checkCanvasRendered();
     });
+  }
+
+  // Safety net: if the canvas ends up blank for any reason (a resize/clear
+  // racing the render loop, a one-off browser quirk, etc.), rebuild the
+  // whole book from scratch rather than leaving a permanently empty page.
+  function checkCanvasRendered() {
+    setTimeout(function () {
+      var canvas = bookEl.querySelector('canvas.stf__canvas');
+      if (!canvas || !canvas.width || !canvas.height) return;
+      var ctx = canvas.getContext('2d');
+      var w = canvas.width, h = canvas.height;
+      var samples = [
+        [Math.floor(w / 2), Math.floor(h / 2)],
+        [Math.floor(w * 0.25), Math.floor(h * 0.25)],
+        [Math.floor(w * 0.75), Math.floor(h * 0.75)]
+      ];
+      var blank = true;
+      try {
+        for (var i = 0; i < samples.length; i++) {
+          var data = ctx.getImageData(samples[i][0], samples[i][1], 1, 1).data;
+          if (data[3] !== 0) { blank = false; break; }
+        }
+      } catch (e) {
+        return; // can't inspect (e.g. tainted canvas) -- assume it's fine
+      }
+      if (blank && blankCanvasRetries < MAX_BLANK_CANVAS_RETRIES) {
+        blankCanvasRetries++;
+        var current = pageFlip ? pageFlip.getCurrentPageIndex() : 0;
+        buildFlip(current);
+      }
+    }, 1500);
   }
 
   buildFlip(0);
