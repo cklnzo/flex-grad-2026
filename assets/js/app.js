@@ -1,6 +1,6 @@
 (function () {
   var PAGE_ASPECT = 1836 / 2376; // width / height of the source pages
-  var ASSET_VERSION = 6; // bump whenever page images are replaced, to bust browser cache
+  var ASSET_VERSION = 7; // bump whenever page images are replaced, to bust browser cache
   var IMAGES = [
     'assets/pages/cover.jpg?v=' + ASSET_VERSION,
     'assets/pages/program.jpg?v=' + ASSET_VERSION,
