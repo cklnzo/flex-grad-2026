@@ -1,6 +1,6 @@
 (function () {
   var PAGE_ASPECT = 1836 / 2376; // width / height of the source pages
-  var ASSET_VERSION = 4; // bump whenever page images are replaced, to bust browser cache
+  var ASSET_VERSION = 5; // bump whenever page images are replaced, to bust browser cache
   var IMAGES = [
     'assets/pages/cover.jpg?v=' + ASSET_VERSION,
     'assets/pages/program.jpg?v=' + ASSET_VERSION,
@@ -18,6 +18,7 @@
 
   var pageFlip = null;
   var resizeTimer = null;
+  var canvasObserver = null;
 
   function computeSize() {
     var maxW = Math.min(window.innerWidth * 0.92, 620);
@@ -48,23 +49,52 @@
   // (especially text) looks soft/blurry. Re-size the backing store to match
   // the device pixel ratio and scale the drawing context to compensate; the
   // library's internal requestAnimationFrame loop then redraws crisply.
-  function sharpenCanvas() {
-    var canvas = bookEl.querySelector('canvas.stf__canvas');
-    if (!canvas) return;
+  //
+  // A single one-shot fix isn't reliable: the library's own 'init' event
+  // fires via a 1ms timeout, which on slower devices can land before layout
+  // has fully settled, so the CSS size we read may still be wrong/zero. Use
+  // ResizeObserver to keep re-applying the fix every time the canvas's real
+  // layout size changes (it always fires at least once with the current
+  // size), with a polling fallback for older browsers.
+  function applyCanvasScale(canvas) {
     var dpr = window.devicePixelRatio || 1;
     if (dpr <= 1) return;
 
-    var cs = getComputedStyle(canvas);
-    var cssWidth = parseInt(cs.getPropertyValue('width'), 10);
-    var cssHeight = parseInt(cs.getPropertyValue('height'), 10);
+    var rect = canvas.getBoundingClientRect();
+    var cssWidth = Math.round(rect.width);
+    var cssHeight = Math.round(rect.height);
     if (!cssWidth || !cssHeight) return;
 
-    canvas.width = Math.round(cssWidth * dpr);
-    canvas.height = Math.round(cssHeight * dpr);
+    var wantWidth = Math.round(cssWidth * dpr);
+    var wantHeight = Math.round(cssHeight * dpr);
+    if (canvas.width === wantWidth && canvas.height === wantHeight) return;
+
+    canvas.width = wantWidth;
+    canvas.height = wantHeight;
 
     var ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+  }
+
+  function sharpenCanvas() {
+    var canvas = bookEl.querySelector('canvas.stf__canvas');
+    if (!canvas) return;
+
+    applyCanvasScale(canvas);
+
+    if (canvasObserver) canvasObserver.disconnect();
+
+    if ('ResizeObserver' in window) {
+      canvasObserver = new ResizeObserver(function () {
+        applyCanvasScale(canvas);
+      });
+      canvasObserver.observe(canvas);
+    } else {
+      [50, 200, 500, 1200].forEach(function (delay) {
+        setTimeout(function () { applyCanvasScale(canvas); }, delay);
+      });
+    }
   }
 
   function buildFlip(startPage) {
@@ -73,6 +103,11 @@
     // PageFlip only switches to a two-page spread when the container has
     // room for 2x the page width, so cap the wrapper to a single page.
     wrapperEl.style.maxWidth = size.width + 'px';
+
+    if (canvasObserver) {
+      canvasObserver.disconnect();
+      canvasObserver = null;
+    }
 
     if (pageFlip) {
       try { pageFlip.destroy(); } catch (e) { /* no-op */ }
